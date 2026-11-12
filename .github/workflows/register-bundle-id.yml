@@ -1,0 +1,25 @@
+name: register-bundle-id
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  register:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: 準備
+        run: |
+          pip install --quiet pyjwt cryptography
+          curl -fsSL https://raw.githubusercontent.com/kajisho5/runway/main/scripts/asc.py -o tools/asc.py
+      - name: Bundle ID を登録
+        run: python3 tools/register_bundle_id.py
+        env:
+          BUNDLE_ID: com.seventhwell.HolderLink
+          APP_NAME: HOLDER LINK
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}

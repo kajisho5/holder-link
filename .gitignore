@@ -8,3 +8,4 @@ build/
 *.p12
 *.mobileprovision
 *.cer
+tools/asc.py
