@@ -15,6 +15,8 @@ struct DiscoveredDevice: Identifiable, Equatable {
     let id: UUID
     let name: String
     var rssi: Int
+    var isIQOS = true
+    var alreadyConnected = false
 }
 
 /// IQOS 本体との BLE 接続。画面からはこれと DeviceStore だけを見る。
@@ -36,6 +38,8 @@ final class BLEManager: NSObject {
     private(set) var deviceName: String = ""
     private(set) var deviceInfo: [String: String] = [:]   // 2A24 など → 値
     var lastError: String?
+    /// 調査用：IQOS 以外も含めて、名前のある機器をすべて一覧に出す
+    var showAll = false { didSet { if oldValue != showAll { discovered = discovered.filter { showAll || $0.isIQOS } } } }
 
     @ObservationIgnored private var central: CBCentralManager!
     @ObservationIgnored private var peripherals: [UUID: CBPeripheral] = [:]
@@ -45,6 +49,8 @@ final class BLEManager: NSObject {
     @ObservationIgnored private var controlChar: CBCharacteristic?
     @ObservationIgnored private var userWantsConnection = false
     @ObservationIgnored private var pendingReconnect: CBPeripheral?
+    @ObservationIgnored private var seen: Set<UUID> = []
+    @ObservationIgnored private var stage = ""
 
     // 待ち合わせ
     @ObservationIgnored var connectCont: Pending<Void>?
@@ -74,14 +80,36 @@ final class BLEManager: NSObject {
     func startScan() {
         guard central.state == .poweredOn else { return }
         discovered = []
+        seen = []
         state = .scanning
+        note("探し始め（iOS \(ProcessInfo.processInfo.operatingSystemVersionString)）")
+        // すでに iPhone とつながっている IQOS は広告を出さないことがあるので、先に拾う
+        let known = central.retrieveConnectedPeripherals(withServices: [CBUUID(string: IQOSUUID.coreService),
+                                                                          CBUUID(string: IQOSUUID.deviceInfoService)])
+        for p in known {
+            let name = p.name ?? "名前なし"
+            let iqos = Self.looksLikeIQOS(name: name, services: [])
+            note("iPhone に接続済みの機器：\(name) \(p.identifier.uuidString.prefix(8))")
+            peripherals[p.identifier] = p
+            localNames[p.identifier] = name
+            if iqos || showAll {
+                discovered.append(DiscoveredDevice(id: p.identifier, name: name, rssi: 0, isIQOS: iqos, alreadyConnected: true))
+            }
+        }
         central.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(15))
+            try? await Task.sleep(for: .seconds(30))
             guard let self, self.state == .scanning else { return }
             self.central.stopScan()
             self.state = .idle
+            self.note("探し終わり：見つけた機器 \(self.seen.count) 台、うち IQOS らしいもの \(self.discovered.filter(\.isIQOS).count) 台")
         }
+    }
+
+    static func looksLikeIQOS(name: String, services: [CBUUID]) -> Bool {
+        let upper = name.uppercased()
+        return upper.contains("IQOS") || upper.contains("ILUMA")
+            || services.contains(CBUUID(string: IQOSUUID.coreService))
     }
 
     func stopScan() {
@@ -98,8 +126,8 @@ final class BLEManager: NSObject {
         do {
             try await open(p)
         } catch {
-            note("接続に失敗：\(describe(error))")
-            lastError = "接続できませんでした。本体の電源を入れ直して、もう一度お試しください"
+            note("接続に失敗：\(describe(error))（段階：\(stage)）")
+            lastError = "接続できませんでした（\(stage)で止まりました）。本体の電源を入れ直して、もう一度お試しください。続くときは「通信ログ」をコピーして送ってください"
             central.cancelPeripheralConnection(p)
             state = .idle
         }
@@ -122,6 +150,7 @@ final class BLEManager: NSObject {
 
     private func open(_ p: CBPeripheral) async throws {
         state = .connecting
+        stage = "接続"
         peripheral = p
         p.delegate = self
         deviceName = localNames[p.identifier] ?? p.name ?? "IQOS"
@@ -134,6 +163,7 @@ final class BLEManager: NSObject {
 
     /// つながった後の下調べ（接続口を探して、知らせを受け取る設定をする）。
     private func setup(_ p: CBPeripheral) async throws {
+        stage = "サービスを探す"
         try await withTimeout(.seconds(10)) { (cont: Pending<Void>) in self.servicesCont = cont; p.discoverServices(nil) }
         let services = p.services ?? []
         if !services.isEmpty {
@@ -143,10 +173,14 @@ final class BLEManager: NSObject {
                 services.forEach { p.discoverCharacteristics(nil, for: $0) }
             }
         }
+        note("サービス：" + services.map(\.uuid.uuidString).joined(separator: ", "))
+        stage = "送受信口を探す"
         let all = services.flatMap { $0.characteristics ?? [] }
+        note("キャラクタリスティック：" + all.map(\.uuid.uuidString).joined(separator: ", "))
         batteryChar = all.first { $0.uuid == CBUUID(string: IQOSUUID.battery) }
         controlChar = all.first { $0.uuid == CBUUID(string: IQOSUUID.control) }
         guard let control = controlChar else { throw IQOSError.transport("命令の送受信口が見つからない") }
+        stage = "知らせの受け取り設定（ここでペアリングを求められることがある）"
         try await withTimeout(.seconds(10)) { (cont: Pending<Void>) in self.notifyCont = cont; p.setNotifyValue(true, for: control) }
 
         // 本体情報（読めなくても続ける）
@@ -325,17 +359,35 @@ extension BLEManager: CBCentralManagerDelegate, CBPeripheralDelegate {
 
     nonisolated func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                                     advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? peripheral.name ?? ""
+        let advName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
+        let name = advName ?? peripheral.name ?? ""
+        let services = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? [])
+            + (advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] ?? [])
+        let maker = (advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data).map { [UInt8]($0) }
+        let connectable = (advertisementData[CBAdvertisementDataIsConnectable] as? NSNumber)?.boolValue
         let rssi = RSSI.intValue
         MainActor.assumeIsolated {
-            let upper = name.uppercased()
-            guard upper.contains("IQOS") || upper.contains("ILUMA") else { return }
-            self.peripherals[peripheral.identifier] = peripheral
-            self.localNames[peripheral.identifier] = name
-            if let i = self.discovered.firstIndex(where: { $0.id == peripheral.identifier }) {
+            let id = peripheral.identifier
+            let iqos = Self.looksLikeIQOS(name: name, services: services)
+            if !self.seen.contains(id) {
+                self.seen.insert(id)
+                // 調査用に、見つけた機器を 1 回だけ記録する（名前のない機器は IQOS らしいときだけ）
+                if iqos || !name.isEmpty {
+                    var line = "発見：\(name.isEmpty ? "名前なし" : name) 電波\(rssi)"
+                    if !services.isEmpty { line += " サービス[\(services.map(\.uuidString).joined(separator: ","))]" }
+                    if let maker { line += " メーカー[\(hexString(Array(maker.prefix(12))))]" }
+                    if connectable == false { line += " 接続不可" }
+                    self.note(line)
+                }
+            }
+            guard iqos || (self.showAll && !name.isEmpty) else { return }
+            self.peripherals[id] = peripheral
+            self.localNames[id] = name
+            if let i = self.discovered.firstIndex(where: { $0.id == id }) {
                 self.discovered[i].rssi = rssi
             } else {
-                self.discovered.append(DiscoveredDevice(id: peripheral.identifier, name: name, rssi: rssi))
+                self.discovered.append(DiscoveredDevice(id: id, name: name.isEmpty ? "名前なし（IQOS のサービスあり）" : name,
+                                                        rssi: rssi, isIQOS: iqos))
             }
         }
     }

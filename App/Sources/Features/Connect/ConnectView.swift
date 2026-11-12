@@ -3,6 +3,7 @@ import UIKit
 
 struct ConnectView: View {
     @Environment(DeviceStore.self) private var store
+    @State private var showLog = false
 
     private var ble: BLEManager { store.ble }
 
@@ -29,8 +30,11 @@ struct ConnectView: View {
 
             VStack(spacing: 10) {
                 actionButton
-                Button("IQOS 公式の Web アプリを開く") { store.openOfficialBrowser() }
-                    .font(.footnote)
+                HStack(spacing: 20) {
+                    Button("通信ログ") { showLog = true }
+                    Button("IQOS 公式の Web アプリを開く") { store.openOfficialBrowser() }
+                }
+                .font(.footnote)
                 Text("Bluetooth を使って通信します")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -39,6 +43,14 @@ struct ConnectView: View {
             .padding(.bottom, 16)
         }
         .background(Color(.systemGroupedBackground))
+        .sheet(isPresented: $showLog) {
+            NavigationStack {
+                LogView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("閉じる") { showLog = false } }
+                    }
+            }
+        }
         .alert("接続できませんでした",
                isPresented: Binding(get: { ble.lastError != nil }, set: { if !$0 { ble.lastError = nil } })) {
             Button("OK", role: .cancel) {}
@@ -89,7 +101,11 @@ struct ConnectView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                Text("本体の電源を一度切ってから入れ直すと、Bluetooth がオンになります。iPhone の近くに置いてください。")
+                Toggle("IQOS 以外も表示（調査用）", isOn: Binding(get: { ble.showAll }, set: { ble.showAll = $0 }))
+                    .font(.footnote)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                Text("チャージャーのボタンを 4 秒押して電源を切り、もう一度 4 秒押して入れ直すと、Bluetooth がオンになります。iPhone の近くに置いてください。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -122,7 +138,8 @@ private struct DeviceRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(device.name).font(.headline)
-                Text("\(SignalText.describe(device.rssi)) ・ タップして接続")
+                Text(device.alreadyConnected ? "iPhone に接続済み ・ タップして使う"
+                     : "\(SignalText.describe(device.rssi)) ・ タップして接続")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
