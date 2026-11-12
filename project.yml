@@ -1,0 +1,51 @@
+name: HolderLink
+options:
+  bundleIdPrefix: com.seventhwell
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+packages:
+  IQOSKit:
+    path: Packages/IQOSKit
+targets:
+  HolderLink:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/Sources
+      - path: App/Resources
+        buildPhase: resources
+    dependencies:
+      - package: IQOSKit
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: HOLDER LINK
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        LSRequiresIPhoneOS: true
+        NSBluetoothAlwaysUsageDescription: IQOS 本体と通信するために Bluetooth を使います。
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIRequiredDeviceCapabilities: [arm64]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.seventhwell.HolderLink
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: false
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  HolderLink:
+    build:
+      targets:
+        HolderLink: all

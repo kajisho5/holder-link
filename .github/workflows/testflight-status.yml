@@ -1,0 +1,31 @@
+# flight-deck template: copy scripts/asc_*.py to tools/ and replace com.seventhwell.HolderLink.
+# Shows the TestFlight processing / test group state of the latest builds (manual run only).
+name: testflight-status
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - run: pip install --quiet pyjwt cryptography
+      - name: Ensure the internal TestFlight group
+        run: python3 tools/asc_internal_group.py
+        env:
+          BUNDLE_ID: com.seventhwell.HolderLink
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+      - name: Show build state
+        run: python3 tools/asc_status.py
+        env:
+          BUNDLE_ID: com.seventhwell.HolderLink
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}

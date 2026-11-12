@@ -1,0 +1,21 @@
+name: testflight
+
+on:
+  workflow_dispatch:      # Actions タブ／iPhone の GitHub アプリから手動実行
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    uses: kajisho5/runway/.github/workflows/apple-testflight.yml@main
+    with:
+      bundle_id: com.seventhwell.HolderLink
+      project: HolderLink.xcodeproj
+      scheme: HolderLink
+      pre_build: brew install xcodegen && xcodegen generate
+      runner: macos-26
+      xcode: "26"
+    secrets: inherit

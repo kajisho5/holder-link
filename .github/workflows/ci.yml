@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # 通信の決まりごとのテスト（Linux で十分。無料で速い）
+  protocol-tests:
+    runs-on: ubuntu-24.04
+    container: swift:6.4.2-noble
+    steps:
+      - uses: actions/checkout@v6
+      - name: テスト
+        working-directory: Packages/IQOSKit
+        run: swift test
+
+  # アプリ全体がビルドできるか（署名なし）
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+      - name: Xcode を選ぶ
+        run: |
+          x=$(ls -d /Applications/Xcode_26*.app | grep -vi beta | sort -V | tail -n 1)
+          sudo xcode-select -s "$x/Contents/Developer"
+          xcodebuild -version
+      - name: プロジェクトを作る
+        run: brew install xcodegen && xcodegen generate
+      - name: ビルド
+        run: |
+          set -o pipefail
+          xcodebuild -project HolderLink.xcodeproj -scheme HolderLink \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log | grep -E "error:|warning: .*(Sendable|isolat)|BUILD" || true
+          grep -q "BUILD SUCCEEDED" build.log
+      - name: ログを残す
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-log
+          path: build.log

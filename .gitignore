@@ -1,0 +1,10 @@
+.DS_Store
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+.build/
+build/
+*.p8
+*.p12
+*.mobileprovision
+*.cer
