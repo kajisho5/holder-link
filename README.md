@@ -50,9 +50,9 @@ kajisho5/runway の共通ワークフローを使う（`.github/workflows/testfl
 
 初回だけ必要なこと：
 
-1. Bundle ID `com.seventhwell.HolderLink` を登録する：https://developer.apple.com/account/resources/identifiers/add/bundleId
-2. App Store Connect でアプリを作る：https://appstoreconnect.apple.com/apps
-3. runway の `repos.txt` に `kajisho5/holder-link` を足す（Secrets が配られる）
+1. Bundle ID `com.seventhwell.HolderLink` を登録する（済。runway の apple-bundle-id で登録）
+2. App Store Connect でアプリを作る：https://appstoreconnect.apple.com/apps （API では作れないので人が行う）
+3. runway の `repos.txt` に `kajisho5/holder-link` を足す（済）
 
 実行：Actions → testflight → Run workflow。届かないときは Actions → testflight-status を実行してログを見る。
 
